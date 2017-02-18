@@ -1,0 +1,234 @@
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <script src="https://d3js.org/d3.v4.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
+    <style>
+    path.fade_hover {
+        display: none;
+    }
+    path.fade_click {
+        display: none;
+    }
+    .marked {
+        fill: red !important;
+    }
+    </style>
+</head>
+
+<body>
+    <div class="chart"></div>
+    <!--<svg height=500>
+<g transform="translate(200,200)rotate(0)">
+<text id=text1 dy=0 text-anchor=end transform="rotate(30)">pierwszy</text>
+<rect x=0 y=0 width=10 height="10"/>
+<g transform="rotate(130)translate(50)">
+<text id=text1 dy=0 text-anchor=end transform="rotate(180)">abcdsfsdfsd</text>
+</g>
+</g>
+</svg>-->
+<svg id="main"></svg>
+
+<script>
+/*var body = d3.select('body').append('div').html('ehlo');
+var chart = d3.select('.chart');
+var bar = chart.selectAll('div');
+
+var barUpdate = bar.data([1,2,3,4,5,6]);
+var barEnter = barUpdate.enter().append('div')
+
+barEnter.style("width", function(d) { return d * 10 + 'px'; });
+barEnter.style("background-color", "red");
+barEnter.text(function(d) { return d; });*/
+
+var fullcircle = Math.PI * 2
+var deg2rad = function(deg) {
+    return (deg / 360) * fullcircle;
+}
+
+var mid = function(a, b) {
+    return (a + b) / 2;
+}
+
+var groupCenterRotate = function(arcData) {
+    var midAngle = (arcData.endAngle + arcData.startAngle) / 2;
+    if (midAngle > Math.PI) {
+        midAngle = midAngle - Math.PI;
+    }
+    return rad2deg(midAngle) - 90;
+}
+
+var rad2deg = function(rad) {
+    return (rad / fullcircle) * 360;
+}
+
+
+
+function groupArcMouseover(d, i) {
+      d3.selectAll(".ribbons path")
+        .classed("fade_hover", function(p) {
+        //console.log(p.source.index, p.target.index );
+        return p.source.index != i
+            && p.target.index != i;
+      });
+    }
+
+function groupArcMouseout(d, i) {
+    d3.selectAll(".ribbons path")
+        .classed("fade_hover", false);
+}
+
+function groupArcClick(d, i) {
+      d3.selectAll(".ribbons path")
+        .classed("fade_click", function(p) {
+        //console.log(p.source.index, p.target.index );
+        my = d3.select(this)
+        if (p.source.index != i && p.target.index != i) {
+            if(my.classed('fade_click')) return false;
+            else return true;
+        } else {
+            return false;
+        }
+      });
+      d3.selectAll(".groups path").classed('marked', function(p) {
+          console.log(p);
+          if (p.index == i) {
+                    return !d3.select(this).classed('marked');
+          }
+      });
+}
+
+
+var draw = function(matrix, zones) {
+    var width = 700,
+        height = 700,
+        outerRadius = 200//Math.min(width, height) * 0.5 - 40,
+        innerRadius = outerRadius * 0.93,
+        labelOffset = 5,
+        groupArcPadding = 1; // in degrees
+
+    console.log(matrix);
+    var svg = d3.select('#main');
+    var chord = d3.chord()
+        .padAngle(deg2rad(groupArcPadding))
+        .sortSubgroups(function(a,b) { return -1; });
+    var ribbon = d3.ribbon()
+        .radius(innerRadius);
+    var arc = d3.arc()
+        .innerRadius(innerRadius)
+        .outerRadius(outerRadius);
+
+    var g = svg.append("g") // "master" group
+        //.attr("transform", "translate(" + width / 2 + "," + height / 2 + ")")
+        .datum(chord(matrix));
+
+    console.log(chord(matrix));
+
+    g.append("g")
+        .attr("class", "ribbons")
+        .selectAll("path")
+        .data(function(chords) { return chords; })
+        .enter().append("path")
+        .attr("d", ribbon)
+        .style("fill", function(d) { return "pink"; })
+        .style("stroke", function(d) { return "brown"; });
+
+    var group = g.append("g")
+        .attr("class", "groups")
+        .selectAll("g")
+        .data(function(chords) { return chords.groups; })
+        .enter().append("g");
+
+
+    group.append("path")
+        .on("mouseover", function(d, i) { console.log('mover'); groupArcMouseover(d, i); })
+        .on("click", function(d, i) { console.log('click'); groupArcClick(d, i); })
+        .on("mouseout", function(d, i) { console.log('mout'); groupArcMouseout(d, i); })
+        .style("fill", function(d) { return "black"; })
+        .style("stroke", function(d) { return "red"; })
+        .attr("d", arc);
+
+    var labels = group.append("g")
+        .attr("transform", function(d) {
+            return "rotate(" + groupCenterRotate(d) + ")" + "translate(" + (mid(d.startAngle, d.endAngle) > Math.PI ? -1 : 1) * (outerRadius+labelOffset) + ",0)";
+        })
+
+    labels.append("text")
+        .attr('text-anchor', function(d) {
+            return mid(d.startAngle, d.endAngle) > Math.PI ? 'end' : 'start'
+        })
+        .attr('font-size', '0.5em')
+        .attr('dy', '0.25em')
+        .text(function(d) {
+            console.log(d);
+            return zones[d.index];
+        })
+    contentsize = g._groups[0][0].getBBox();
+    width = contentsize.width*1.1;
+    height = contentsize.height*1.1;
+    svg.attr('width', contentsize.width)
+        .attr('height', contentsize.height)
+        .attr("transform", "translate(" + width / 2 + "," + height / 2 + ")");
+}
+
+// builds chord matrix from 'policies' config tree
+var makematrix2 = function(d, zones) {
+    var matrix = []
+    for (var i = 0; i < zones.length; i++) {
+        matrix.push(new Array(zones.length + 1).join('0').split('').map(parseFloat));
+    }
+    console.log(matrix);
+    policies.forEach(function(wing) {
+        console.log(wing);
+        fromzone = wing["from-zone-name"]
+        tozone = wing["to-zone-name"]
+        console.log(zones.indexOf(fromzone));
+        console.log(zones);
+        if (Array.isArray(wing['policy'])) {
+            policycount = wing['policy'].length;
+        } else {
+            policycount = 1;
+        }
+        fromindex = zones.indexOf(fromzone)
+        toindex = zones.indexOf(tozone);
+        if (fromindex != -1 && toindex != -1) {
+            matrix[zones.indexOf(fromzone)][zones.indexOf(tozone)] = policycount;
+        }
+        //matrix[zones.indexOf(tozone)][zones.indexOf(fromzone)] = 1 //Object.keys(pair['policies']).length
+    });
+    return matrix;
+}
+
+var prepareData = function(cfg) {
+    policies = cfg['security']['policies']['policy'];
+    var zones = [];
+    ignoreZones = ['world'];
+    policies.forEach(function(wing) {
+        fromzone = wing["from-zone-name"]
+        tozone = wing["to-zone-name"]
+        if (zones.indexOf(fromzone) == -1) {
+            zones.push(fromzone);
+        }
+        if (zones.indexOf(tozone) == -1) {
+            zones.push(tozone);
+        }
+    });
+    ignoreZones.forEach(function(z) {
+        i = zones.indexOf(z);
+        zones.splice(i, 1);
+    })
+    matrix = makematrix2(policies, zones);
+    return [matrix, zones];
+}
+
+$.getJSON('/srxconfig.json', function(data) {
+    console.log(data);
+    console.log(data['security']['policies']);
+    prepdata = prepareData(data);
+    draw(prepdata[0], prepdata[1]);
+});
+</script>
+</body>
+
+</html>
