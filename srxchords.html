@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <script src="https://d3js.org/d3.v4.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/ramda/0.23.0/ramda.min.js"></script>
+    <script src="https://unpkg.com/vue/dist/vue.js"></script>
     <style>
     path.fade_hover {
         display: none;
@@ -13,6 +15,17 @@
     }
     .marked {
         fill: red !important;
+    }
+    table th {
+        border-collapse: collapse;
+        border: 1px solid black;
+    }
+    table td {
+        border-collapse: collapse;
+        border: 1px solid black;
+    }
+    table {
+        border-collapse: collapse;
     }
     </style>
 </head>
@@ -29,6 +42,24 @@
 </g>
 </svg>-->
 <svg id="main"></svg>
+
+<div id="app">
+<table>
+    <thead>
+        <tr><th>From</th><th>To</th><th>Name</th><th>SAddr</th><th>DAddr</th><th>App</th></tr>
+    </thead>
+  <tbody>
+    <tr v-for="(policy, index) in policies" class="list-complete-item" v-bind:key="policy">
+        <td><pre>{{ policy.fromzone }}</pre></td>
+        <td><pre>{{ policy.tozone }}</pre></td>
+        <td><pre>{{ policy.name }}</pre></td>
+        <td><pre>{{ policy.match['source-address'] }}</pre></td>
+        <td><pre>{{ policy.match['destination-address'] }}</pre></td>
+        <td><pre>{{ policy.match['application'] }}</pre></td>
+    </tr>
+  </tbody>
+</table>
+</div>
 
 <script>
 /*var body = d3.select('body').append('div').html('ehlo');
@@ -63,40 +94,89 @@ var rad2deg = function(rad) {
     return (rad / fullcircle) * 360;
 }
 
+var marked = []
 
+function in_(elem, arr) { return arr.indexOf(elem) != -1; }
+function remove(elem, arr) { if(in_(elem, arr)) arr.splice(arr.indexOf(elem), 1); }
+
+// returns true when ribbon 'p' starts or ends in group 'i'
+function touching(i, p) { return p.source.index == i || p.target.index == i; }
+var notTouching = R.pipe(touching, R.not);
+var touchingFlip = R.flip(touching)
+function touchingAny(is, p) { return R.any(R.identity, R.map( R.partial(touchingFlip, [p]), is ))}
+
+function toggleClass(cl) {
+    return function(p, index, nodes) {
+        o = d3.select(nodes[index]);
+        return !o.classed(cl);
+    }
+}
+var setClass = R.pipe(toggleClass, R.not)
 
 function groupArcMouseover(d, i) {
-      d3.selectAll(".ribbons path")
-        .classed("fade_hover", function(p) {
-        //console.log(p.source.index, p.target.index );
-        return p.source.index != i
-            && p.target.index != i;
-      });
-    }
+    d3.selectAll(".ribbons path")
+        .classed("fade_hover", R.partial(notTouching, [i]) )
+        .classed('temp_fade_click', R.pipe(toggleClass('fade_click'), R.not))
+        .classed('fade_click', false);
+}
 
 function groupArcMouseout(d, i) {
     d3.selectAll(".ribbons path")
-        .classed("fade_hover", false);
+        .classed("fade_hover", false)
+        .classed('fade_click', R.pipe(toggleClass('temp_fade_click'), R.not))
+        .classed('temp_fade_click', false);
 }
 
 function groupArcClick(d, i) {
-      d3.selectAll(".ribbons path")
-        .classed("fade_click", function(p) {
-        //console.log(p.source.index, p.target.index );
-        my = d3.select(this)
-        if (p.source.index != i && p.target.index != i) {
-            if(my.classed('fade_click')) return false;
-            else return true;
+    if(in_(i, marked)) {
+        remove(i, marked);
+    } else {
+        marked.push(i);
+    }
+    d3.selectAll(".ribbons path")
+        .classed("temp_fade_click", function(p, index, nodes) {
+            //console.log(p.source.index, p.target.index );
+            //console.log(p);
+            //console.log(arguments);
+            if(marked.length > 0) {
+                selectPolicies();
+                return !touchingAny(marked, p);
+            } else {
+                return false;
+            }
+        });
+    d3.selectAll(".groups path").classed('marked', function(p) {
+            //console.log(p);
+            return in_(p.index, marked)
+        });
+}
+
+function selectPolicies() {
+    policiesSelected.length = 0;
+    for (var wing of policies) {
+        fromzone = wing['from-zone-name'];
+        tozone = wing['to-zone-name']
+        //console.log('umatching', fromzone, tozone);
+        if (marked.length == 1) {
+            show = in_(zones.indexOf(fromzone), marked) || in_(zones.indexOf(tozone), marked);
         } else {
-            return false;
+            show = in_(zones.indexOf(fromzone), marked) && in_(zones.indexOf(tozone), marked);
         }
-      });
-      d3.selectAll(".groups path").classed('marked', function(p) {
-          console.log(p);
-          if (p.index == i) {
-                    return !d3.select(this).classed('marked');
-          }
-      });
+        if(show) {
+            //console.log('matching', fromzone, tozone);
+            ps = wing['policy'];
+            if(ps) {
+                if(!Array.isArray(ps)) {
+                    ps = [ps]
+                }
+                for(var p of ps) {
+                    p.fromzone = fromzone;
+                    p.tozone = tozone;
+                    policiesSelected.push(p)
+                }
+            }
+        }
+    }
 }
 
 
@@ -202,7 +282,7 @@ var makematrix2 = function(d, zones) {
 
 var prepareData = function(cfg) {
     policies = cfg['security']['policies']['policy'];
-    var zones = [];
+    zones = [];
     ignoreZones = ['world'];
     policies.forEach(function(wing) {
         fromzone = wing["from-zone-name"]
@@ -222,11 +302,20 @@ var prepareData = function(cfg) {
     return [matrix, zones];
 }
 
+policiesSelected = []
+policies = []
+
 $.getJSON('/srxconfig.json', function(data) {
     console.log(data);
     console.log(data['security']['policies']);
     prepdata = prepareData(data);
     draw(prepdata[0], prepdata[1]);
+    new Vue({
+        el: '#app',
+        data: {
+            policies: policiesSelected
+        }
+    })
 });
 </script>
 </body>
